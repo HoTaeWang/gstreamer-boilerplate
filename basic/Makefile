@@ -3,6 +3,7 @@ GSTREAMER =-pthread -I/usr/include/gstreamer-1.0 -I/usr/include/glib-2.0 -I/usr/
 all:
 	g++ -o create_GstElement.app  create_GstElement.cpp $(GSTREAMER) 
 	g++ -o dynamicPipeline.app  basic-tutorial-3.c  $(GSTREAMER) 
+	g++ -o timeManagement.app  basic-tutorial-4.c  $(GSTREAMER) 
 
 clean:
 	rm *.app
