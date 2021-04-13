@@ -12,7 +12,7 @@ int main(int argc, char **argv)
 	gst_init(&argc, &argv);
 
 	/* create the elements */
-	audio_source = get_element_factory_make("audiotestsrc", "audio_source");
+	audio_source = gst_element_factory_make("audiotestsrc", "audio_source");
 	tee = gst_element_factory_make("tee", "tee");
 	audio_queue = gst_element_factory_make("queue", "audio_queue");
 	audio_convert = gst_element_factory_make("audioconvert", "audio_convert");
@@ -70,7 +70,7 @@ int main(int argc, char **argv)
 
 	/* Wait until error or EOS */
 	bus = gst_element_get_bus(pipeline);
-	msg = gst_bus_timed_pop_filtered(bus, GST_CLOCK_TIME_NONE, GST_MESSAGE_ERROR | GST_MESSAGE_EOS);
+	msg = gst_bus_timed_pop_filtered(bus, GST_CLOCK_TIME_NONE, (GstMessageType)(GST_MESSAGE_ERROR | GST_MESSAGE_EOS));
 
 	/* Release the request pads from the Tee, and unref them */
 	gst_element_release_request_pad(tee, tee_audio_pad);

@@ -7,6 +7,8 @@ all:
 	g++ -o dynamicPipeline.app  basic-tutorial-3.c  $(GSTREAMER) 
 	g++ -o timeManagement.app  basic-tutorial-4.c  $(GSTREAMER) 
 	g++ -o mediaPlayerGui.app  basic-tutorial-5.c  $(GSTREAMER) $(GTKFLAGS) -Wdeprecated-declarations $(GSTVIDEO) 
+	gcc -o padCapability.app  basic-tutorial-6.c  $(GSTREAMER)
+	g++ -o simpleThreaded.app  basic-tutorial-7.c  $(GSTREAMER)
 
 clean:
 	rm *.app
