@@ -3,7 +3,7 @@
 int main(int argc, char **argv)
 {
 	GstElement *pipeline, *audio_source, *tee, *audio_queue, *audio_convert, *audio_resample, *audio_sink;
-	GstElement *video_queue, *visual, *visual_convert, *video_sink;
+	GstElement *video_queue, *visual, *video_convert, *video_sink;
 	GstBus *bus;
 	GstMessage *msg;
 	GstPad *tee_audio_pad, *tee_video_pad;
@@ -22,10 +22,10 @@ int main(int argc, char **argv)
 	video_queue = gst_element_factory_make("queue", "video_queue");
 	visual = gst_element_factory_make("wavescope", "visual");
 	video_convert = gst_element_factory_make("videoconvert", "csp");
-	video_sink = gst_element_factory_make("audiovideosink", "video_sink");
+	video_sink = gst_element_factory_make("autovideosink", "video_sink");
 
 	/* create the empty pipeline */
-	pipeline = gst_pipeline_new("new-pipeline");
+	pipeline = gst_pipeline_new("test-pipeline");
 
 	if(!pipeline || !audio_source || !tee || !audio_queue || !audio_convert || !audio_resample || !audio_sink || !video_queue || !visual || !video_convert || !video_sink){
 		g_printerr("Not all elements could be created !\n");
@@ -34,7 +34,7 @@ int main(int argc, char **argv)
 
 	/* Configure elements */
 	g_object_set(audio_source, "freq", 215.0f, NULL);
-	g_object_set(vidual, "shader", 0, "style", 1, NULL);
+	g_object_set(visual, "shader", 0, "style", 1, NULL);
 
 	/* Link all elements that can be automatically linked because they have "Always" pads */
 	gst_bin_add_many(GST_BIN(pipeline), audio_source, tee, audio_queue, audio_convert, audio_resample, audio_sink, video_queue, visual, video_convert, video_sink, NULL);
