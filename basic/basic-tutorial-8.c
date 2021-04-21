@@ -43,7 +43,7 @@ static gboolean push_data(CustomData *data)
 
 	/* Generate some psychodelic waveforms */
 	gst_buffer_map(buffer, &map, GST_MAP_WRITE);
-	raw = (gint16 *)map_data;
+	raw = (gint16 *)map.data;
 	data->c += data->d;
 	data->d -= data->c / 1000;
 	freq = 1100 + 1000 * data->d;
@@ -93,4 +93,163 @@ static void stop_feed(GstElement *source, CustomData *data)
 }
 
 /* The appsink has received a buffer */
+static GstFlowReturn new_sample(GstElement *sink, CustomData *data)
+{
+	GstSample *sample;
+
+	/* Retrieve the buffer */
+	g_signal_emit_by_name(sink, "pull-sample", &sample);
+	if(sample){
+		/* The only thing we do in this example is print a * to indicate a received buffer */
+		g_print("*");
+		gst_sample_unref(sample);
+		return GST_FLOW_OK;
+	}
+
+	return GST_FLOW_ERROR;
+}
+
+/* This function is called when an error message is posted on the bus */
+static void error_cb(GstBus *bus, GstMessage *msg, CustomData *data)
+{
+	GError *err;
+	gchar *debug_info;
+
+	/* Print error details on the screen */
+	gst_message_parse_error(msg, &err, &debug_info);
+	g_printerr("Error received from element %s: %s\n", GST_OBJECT_NAME(msg->src), err->message);
+	g_printerr("Debugging information: %s\n", debug_info? debug_info: "none");
+	g_clear_error(&err);
+	g_free(debug_info);
+
+	g_main_loop_quit(data->main_loop);
+}
+
+int main(int argc, char **argv)
+{
+	CustomData data;
+	GstPad *tee_audio_pad, *tee_video_pad, *tee_app_pad;
+	GstPad *queue_audio_pad, *queue_video_pad, *queue_app_pad;
+	GstAudioInfo info;
+	GstCaps *audio_caps;
+	GstBus *bus;
+
+
+	/* Initialize custom data structure */
+	memset(&data, 0x00, sizeof(data));
+	data.b = 1; // for waveform generation
+	data.d = 1;
+
+	// Initialize gstreamer
+	gst_init(&argc, &argv);
+
+	// Create the elements 
+	// 1. App Source
+	data.app_source = gst_element_factory_make("appsrc", "audio_source");
+	// 2 Tee  (1 sink from App Source, 3 srcs for 3 Queues)
+	data.tee = gst_element_factory_make("tee", "tee");
+	// 3. Audio line ( Queue --> Audio Convert --> Audio resample --> Audio Sink )
+	data.audio_queue = gst_element_factory_make("queue", "audio_queue");
+	data.audio_convert1 = gst_element_factory_make("audioconvert", "audio_convert1");
+	data.audio_resample = gst_element_factory_make("audioresample", "audio_resample");
+	data.audio_sink = gst_element_factory_make("autoaudiosink", "audio_sink");
+	// 4 Video Line (Queue --> Wave Scope --> Video Convert --> Video Sink )
+	data.video_queue = gst_element_factory_make("queue", "video_queue");
+	data.audio_convert2 = gst_element_factory_make("audioconvert", "audio_convert2");
+	data.visual = gst_element_factory_make("wavescope", "visual");
+	data.video_convert = gst_element_factory_make("videoconvert", "video_convert");
+	data.video_sink = gst_element_factory_make("autovideosink", "video_sink");
+	// 5. App Sink Line (Queue --> App Sink)	
+	data.app_queue = gst_element_factory_make("queue", "app_queue");
+	data.app_sink = gst_element_factory_make("appsink", "app_sink");
+
+	/* Create empty pipeline */
+	data.pipeline = gst_pipeline_new("test-pipeline");
+	if(!data.pipeline || !data.app_source || !data.tee || !data.audio_queue || !data.audio_convert1 || 
+		!data.audio_resample || !data.audio_sink || !data.video_queue || !data.audio_convert2 || !data.visual ||
+		!data.video_convert || !data.video_sink || !data.app_queue || !data.app_sink)
+	{
+		g_printerr("Not all elements could be created \n");
+		return (-1);
+	}
+
+	/* Configure wavescope */
+	g_object_set(data.visual, "shader", 0x00, "style", 0x00, NULL);
+
+	/* Configure appsrc */
+	gst_audio_info_set_format(&info, GST_AUDIO_FORMAT_S16, SAMPLE_RATE, 1, NULL);
+	audio_caps = gst_audio_info_to_caps(&info);
+	g_object_set(data.app_source, "caps", audio_caps, "format", GST_FORMAT_TIME, NULL);
+	g_signal_connect(data.app_source, "need-data", G_CALLBACK(start_feed), &data);
+	g_signal_connect(data.app_source, "enough-data", G_CALLBACK(stop_feed), &data);
+
+
+	/* Configure appsink */
+	g_object_set(data.app_sink, "emit-signals", TRUE, "caps", audio_caps, NULL);
+	g_signal_connect(data.app_sink, "new-sample", G_CALLBACK(new_sample), &data);
+	gst_caps_unref(audio_caps);
+
+	/* Link all elements that can be automatically linked because they have "Always" pads */
+	gst_bin_add_many(GST_BIN(data.pipeline), data.app_source, data.tee, data.audio_queue, data.audio_convert1, data.audio_resample,
+		data.audio_sink, data.video_queue, data.audio_convert2, data.visual, data.video_convert, data.video_sink, data.app_queue, 
+		data.app_sink, NULL);
+	if(gst_element_link_many(data.app_source, data.tee, NULL) != TRUE ||
+	   gst_element_link_many(data.audio_queue, data.audio_convert1, data.audio_resample, data.audio_sink, NULL) != TRUE ||
+	   gst_element_link_many(data.video_queue, data.audio_convert2, data.visual, data.video_convert, data.video_sink, NULL) != TRUE ||
+	   gst_element_link_many(data.app_queue, data.app_sink, NULL) != TRUE)
+	{
+		g_printerr("Elements could not be linked \n");
+		gst_object_unref(data.pipeline);
+		return (-1);
+	}
+
+	/* Manually link the Tee, which has "Request" pads */
+	tee_audio_pad = gst_element_get_request_pad(data.tee, "src_%u");
+	g_print("Obtained request pad %s for audio branch\n", gst_pad_get_name(tee_audio_pad));
+	queue_audio_pad = gst_element_get_static_pad(data.audio_queue, "sink");
+	tee_video_pad = gst_element_get_request_pad(data.tee, "src_%u");
+	g_print("Obtained request pad %s for video branch \n", gst_pad_get_name(tee_video_pad));
+	queue_video_pad = gst_element_get_static_pad(data.video_queue, "sink");
+	tee_app_pad = gst_element_get_static_pad(data.tee, "src_%u");
+	g_print("Obtained request pad %s for app branch\n", gst_pad_get_name(tee_app_pad));
+	queue_app_pad = gst_element_get_static_pad(data.app_queue, "sink");
+	if( gst_pad_link(tee_audio_pad, queue_audio_pad) != GST_PAD_LINK_OK || 
+	    gst_pad_link(tee_video_pad, queue_video_pad) != GST_PAD_LINK_OK ||
+	    gst_pad_link(tee_app_pad, queue_app_pad) != GST_PAD_LINK_OK)
+	{
+		g_printerr("Tee could not be linked\n");
+		gst_object_unref(data.pipeline);
+		return (-1);
+	}
+
+	gst_object_unref(queue_audio_pad);
+	gst_object_unref(queue_video_pad);
+	gst_object_unref(queue_app_pad);
+
+	/* Instruct the bus to emit signals for each received message, and connect to the interesting signals */
+	bus = gst_element_get_bus(data.pipeline);
+	gst_bus_add_signal_watch(bus);
+	g_signal_connect(G_OBJECT(bus), "message::error", (GCallback)error_cb, &data);
+	gst_object_unref(bus);
+
+	/* Start playing the pipeline */
+	gst_element_set_state(data.pipeline, GST_STATE_PLAYING);
+
+	/* Create a GLib Main Loop and set it to run */
+	data.main_loop = g_main_loop_new(NULL, FALSE);
+	g_main_loop_run(data.main_loop);
+
+	/* Release the request pads from the Tee, and unref them */
+	gst_element_release_request_pad(data.tee, tee_audio_pad);
+	gst_element_release_request_pad(data.tee, tee_video_pad);
+	gst_element_release_request_pad(data.tee, tee_app_pad);
+	gst_object_unref(tee_audio_pad);
+	gst_object_unref(tee_video_pad);
+	gst_object_unref(tee_app_pad);
+
+	/* Free resources */
+	gst_element_set_state(data.pipeline, GST_STATE_NULL);
+	gst_object_unref(data.pipeline);
+	return 0;
+}
 
