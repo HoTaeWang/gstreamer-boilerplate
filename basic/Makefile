@@ -14,6 +14,7 @@ all:
 	g++ -o simpleThreaded.app  basic-tutorial-7.c  $(GSTREAMER)
 	g++ -o shortCuttingPipeline.app  basic-tutorial-8.c  $(GSTREAMER) $(GSTAUDIO) 
 	g++ -o discover.app  basic-tutorial-9.c  $(GSTREAMER) $(PBUTILS) 
+	g++ -o streaming.app basic-tutorial-12.c $(GSTREAMER)
 
 clean:
 	rm *.app
